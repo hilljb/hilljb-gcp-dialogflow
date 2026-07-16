@@ -1,12 +1,19 @@
 # Development Plan: PHP Dialogflow CX (Vertex AI) Chat Service
 
+This plan was created via Gemini for creating the link between the frontend webpage and Vertex AI. I will modify with notes where needed for those wishing to follow along.
+
 This document outlines the plan for developing and testing a frontend website that interacts with a PHP backend to communicate with a Google Cloud Dialogflow CX (Vertex AI) agent. The architecture is designed to support multiple concurrent user sessions on a shared PHP server.
 
 ## 1. Prerequisites and GCP Configuration
 Before writing code, the Google Cloud environment must be prepared to allow the shared server to authenticate and communicate with Dialogflow CX.
 
 *   **GCP Project & API:** Ensure a Google Cloud Project is created and the **Dialogflow API** is enabled.
-*   **Dialogflow CX Agent:** Create the Dialogflow CX agent (Vertex AI Conversation) and note the `Project ID`, `Location ID` (e.g., `global` or `us-central1`), and `Agent ID`.
+    *   You don't need to use the "Create credentials" button after enabling the API. We'll add auth through a service account.
+*   **Create a Conversational Agent:**
+    *   This is different than what I've done before: Use the GCP Agents Platform to manually train a RAG agent. This should be easier, and hopefully cheaper.
+    *   Open the [Conversational Agents Console](https://conversational-agents.cloud.google.com/)
+    *   Create an agent. Use the "Build your own" option. Note the details, such as location. Use the "Playbook" option.
+    *   This is where you'll do things like use a datastore, such as a GCP bucket, to specially train the model. For now, we'll just make something via prompting. Do whatever you want.
 *   **Service Account Authentication:**
     *   Create a Service Account in GCP.
     *   Assign it the **Dialogflow Client** role (least privilege required to detect intent).
