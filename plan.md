@@ -1,6 +1,6 @@
 # Development Plan: PHP Dialogflow CX (Vertex AI) Chat Service
 
-This plan was created via Gemini for creating the link between the frontend webpage and Vertex AI. I will modify with notes where needed for those wishing to follow along.
+This plan was created via Gemini for creating the link between the frontend webpage on a shared web server and Vertex AI. I will modify with notes where needed for those wishing to follow along.
 
 This document outlines the plan for developing and testing a frontend website that interacts with a PHP backend to communicate with a Google Cloud Dialogflow CX (Vertex AI) agent. The architecture is designed to support multiple concurrent user sessions on a shared PHP server.
 
@@ -10,7 +10,6 @@ Before writing code, the Google Cloud environment must be prepared to allow the 
 *   **GCP Project & API:** Ensure a Google Cloud Project is created and the **Dialogflow API** is enabled.
     *   You don't need to use the "Create credentials" button after enabling the API. We'll add auth through a service account.
 *   **Create a Conversational Agent:**
-    *   This is different than what I've done before: Use the GCP Agents Platform to manually train a RAG agent. This should be easier, and hopefully cheaper.
     *   Open the [Conversational Agents Console](https://conversational-agents.cloud.google.com/)
     *   Create an agent. Use the "Build your own" option. Note the details, such as location (mine: `us-central1`). Use the "Playbook" option.
     *   This is where you'll do things like use a datastore, such as a GCP bucket, to specially train the model. For now, we'll just make something via prompting. Do whatever you want.
@@ -18,11 +17,11 @@ Before writing code, the Google Cloud environment must be prepared to allow the 
 *   **Service Account Authentication:**
     *   Create a Service Account in GCP.
     *   Assign it the **Dialogflow Client** role (least privilege required to detect intent).
-    *   Generate a JSON key for this Service Account.
+    *   Generate a JSON key for this Service Account. Keep it somewhere safe.
     *   **Security Note for Shared Server:** This JSON file must be securely uploaded to the shared server, ideally *outside* the public web root (e.g., `/home/username/private/gcp-key.json`) so it cannot be accessed via a web browser.
 
 ## 2. Project Setup & Dependencies
-Set up the PHP environment and install the required Google Cloud client libraries.
+Set up the PHP environment and install the required Google Cloud client libraries. This requires [Composer](https://getcomposer.org/) on your local dev machine.
 
 *   **Composer Initialization:** Initialize a `composer.json` file in the project root.
 *   **Install Google Cloud PHP SDK:** Run `composer require google/cloud-dialogflow-cx`.

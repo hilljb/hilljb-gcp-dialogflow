@@ -24,5 +24,3 @@
 /app/Config/database.php
 /vendors/*
 
-# GCP keys
-*.json
