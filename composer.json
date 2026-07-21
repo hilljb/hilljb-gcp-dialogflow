@@ -1,0 +1,10 @@
+{
+    "name": "hilljb/hilljb-gcp-dialogflow",
+    "authors": [
+        {
+            "name": "Jason Hill",
+            "email": "jason@jasonbhill.com"
+        }
+    ],
+    "require": {}
+}
