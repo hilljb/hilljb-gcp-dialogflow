@@ -12,8 +12,9 @@ Before writing code, the Google Cloud environment must be prepared to allow the 
 *   **Create a Conversational Agent:**
     *   This is different than what I've done before: Use the GCP Agents Platform to manually train a RAG agent. This should be easier, and hopefully cheaper.
     *   Open the [Conversational Agents Console](https://conversational-agents.cloud.google.com/)
-    *   Create an agent. Use the "Build your own" option. Note the details, such as location. Use the "Playbook" option.
+    *   Create an agent. Use the "Build your own" option. Note the details, such as location (mine: `us-central1`). Use the "Playbook" option.
     *   This is where you'll do things like use a datastore, such as a GCP bucket, to specially train the model. For now, we'll just make something via prompting. Do whatever you want.
+    *   You can enable logging here, send to BigQuery, etc. to examine chat history.
 *   **Service Account Authentication:**
     *   Create a Service Account in GCP.
     *   Assign it the **Dialogflow Client** role (least privilege required to detect intent).
