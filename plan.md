@@ -23,7 +23,7 @@ Before writing code, the Google Cloud environment must be prepared to allow the 
 ## 2. Project Setup & Dependencies
 Set up the PHP environment and install the required Google Cloud client libraries. This requires [Composer](https://getcomposer.org/) on your local dev machine.
 
-*   **Composer Initialization:** Initialize a `composer.json` file in the project root.
+*   **Composer Initialization:** Initialize a `composer.json` file in the project root. You can do this by running `composer init` in your terminal and following the interactive prompts, or by manually creating a `composer.json` file with an empty JSON object `{}` or basic metadata.
 *   **Install Google Cloud PHP SDK:** Run `composer require google/cloud-dialogflow-cx`.
 *   **Directory Structure:**
     ```text
