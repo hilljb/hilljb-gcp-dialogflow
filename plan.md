@@ -25,7 +25,8 @@ Set up the PHP environment and install the required Google Cloud client librarie
 
 *   **Composer Initialization:** Initialize a `composer.json` file in the project root. You can do this by running `composer init` in your terminal and following the interactive prompts, or by manually creating a `composer.json` file with an empty JSON object `{}` or basic metadata.
 *   **Install Google Cloud PHP SDK:** Run `composer require google/cloud-dialogflow-cx`.
-*   **Directory Structure:**
+*   **Directory Structure:** You can automatically generate this structure by running `./setup.sh` in your terminal. This script will create the necessary folders and empty files.
+    *   **Important:** Once the structure is created, move your Google Cloud Service Account JSON key into the `private/` folder and rename it to `gcp-key.json`. This folder is ignored by git to keep your credentials secure.
     ```text
     / (Project Root)
     ├── composer.json
