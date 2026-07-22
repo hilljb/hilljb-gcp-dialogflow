@@ -33,8 +33,8 @@ Set up the PHP environment and install the required Google Cloud client librarie
         }
     }
     ```
-*   **Directory Structure:** You can automatically generate the base folders and empty frontend/backend files by running `./setup.sh` in your terminal. The backend files under `src/`, `tools/`, and the config/`.htaccess` files described in Stage 3 are created during that stage.
-    *   **Important:** Once the structure is created, move your Google Cloud Service Account JSON key into the `private/` folder and rename it to `gcp-key.json`. This folder is ignored by git to keep your credentials secure.
+*   **Directory Structure:** Run `./setup.sh` in your terminal to generate the entire structure **and** write complete, working starter files for every stage — the backend (`src/`, `tools/`, `public/api/chat.php`), the frontend (`public/index.html`, `public/style.css`, `public/app.js`), the `.htaccess` hardening files, and a `private/config.php` template. The script is idempotent: it only writes a file when that file is missing or empty, so re-running it never overwrites code you have already built or a `config.php` that holds your real GCP values. The code blocks shown in Stages 3 and 4 below are the exact contents `setup.sh` writes, included so you can review and understand each file.
+    *   **Important:** After running the script, (1) run `composer install`, (2) move your Google Cloud Service Account JSON key into `private/` and rename it to `gcp-key.json`, and (3) edit `private/config.php` with your GCP project ID, location, and agent UUID. The `private/` folder is ignored by git to keep your credentials secure.
     ```text
     / (Project Root)
     ├── composer.json
@@ -378,31 +378,406 @@ The same code must run unchanged on the shared host. Bake these in now so deploy
 *   **`allowed_origins`** in `private/config.php` must be updated to the production domain (e.g. `https://yourdomain.com`) when deployed.
 
 ## 4. Frontend Development (HTML/JS)
-A basic, lightweight frontend to interact with the PHP backend.
+A lightweight, dependency-free (vanilla HTML/CSS/JS) frontend that talks to the Stage 3 backend. Like Stage 3, this stage is broken into ordered, self-contained steps, and every code block below is a **complete** starting file an agent can create verbatim. The three files live in the existing `public/` folder (`index.html`, `style.css`, `app.js`) so they are served from the **same origin** as `api/chat.php` — this keeps the setup simple and sidesteps CORS entirely during local development. By the end of this stage you will open `http://localhost:8000/` in a browser and hold a live, multi-turn conversation with the agent, and confirm that separate browsers hold independent conversations.
 
-*   **UI (`index.html` & `style.css`):**
-    *   A scrollable chat window to display the conversation history.
-    *   An input text field for the user's message.
-    *   A "Send" button (and "Enter" key listener).
-*   **Logic (`app.js`):**
-    *   Maintain the chat UI state (appending user messages and bot responses to the DOM).
-    *   Use the `fetch()` API to send asynchronous POST requests to `chat.php`.
-    *   Handle loading states (e.g., showing a "typing..." indicator while waiting for the PHP backend).
-    *   Manage the Session ID (if using the frontend-generated UUID approach) by checking `localStorage` on load and generating one if it doesn't exist.
+> **Backend contract this frontend must match (implemented and verified in Stage 3).** Do not deviate from these field names or the frontend will silently fail.
+> *   **Endpoint:** `POST api/chat.php` (relative to the page URL when served from `public/`).
+> *   **Request body (JSON):** `{"message": "<user text>", "session_id": "<per-browser id>"}`.
+> *   **Success response (HTTP 200, JSON):** `{"reply": "<agent text>", "session_id": "<echoed id>"}`.
+> *   **Error response (HTTP 400/405/500/502, JSON):** `{"error": "<human-readable message>"}`.
+> *   The reply text may contain newlines (the backend joins multiple response messages with `\n`); render them, but always insert user/agent text as **text nodes**, never as HTML, to avoid XSS.
+
+### Step 4.1: Session identity strategy (how simultaneous conversations stay separate)
+Dialogflow CX keys a conversation off the `session_id` the backend receives (Step 3.4). The frontend owns generating and persisting that ID:
+
+*   On first load, generate a UUID with `crypto.randomUUID()` and store it in `localStorage` under a fixed key (e.g. `dialogflow_session_id`). On every subsequent load, reuse the stored value so a page refresh continues the same conversation.
+*   Because `localStorage` is **scoped per browser and per origin**, Chrome, Firefox, Safari, and each Incognito/Private window automatically get their own stored UUID — and therefore their own independent Dialogflow conversation. This is exactly what satisfies the "multiple simultaneous conversations in different browsers" requirement; no server-side work is needed.
+*   Send this ID as `session_id` in every request. Provide a **"New chat"** button that clears the stored ID, generates a fresh UUID, and empties the transcript, so a single browser can start a brand-new conversation on demand.
+
+### Step 4.2: Markup (`public/index.html`)
+A minimal, accessible chat shell: a scrollable transcript region, a text input, a Send button, and a New-chat button. It loads `style.css` and `app.js` (the latter as a `defer`ed module-free script).
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dialogflow CX Chat</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="chat">
+    <header class="chat__header">
+      <h1 class="chat__title">Assistant</h1>
+      <button id="new-chat" class="chat__new" type="button">New chat</button>
+    </header>
+
+    <!-- aria-live so screen readers announce new messages as they arrive -->
+    <div id="messages" class="chat__messages" aria-live="polite"></div>
+
+    <form id="chat-form" class="chat__form" autocomplete="off">
+      <input
+        id="chat-input"
+        class="chat__input"
+        type="text"
+        name="message"
+        placeholder="Type a message…"
+        maxlength="4000"
+        autocomplete="off"
+        required
+      />
+      <button id="send-btn" class="chat__send" type="submit">Send</button>
+    </form>
+  </main>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
+```
+
+### Step 4.3: Styling (`public/style.css`)
+Just enough CSS for a clean, responsive chat window with distinct user/agent bubbles and an animated "typing" indicator. No framework required (upgrading to one is a Stage 6 enhancement).
+
+```css
+:root {
+  --bg: #f5f6f8;
+  --panel: #ffffff;
+  --user: #2563eb;
+  --user-text: #ffffff;
+  --agent: #e9ebef;
+  --agent-text: #111827;
+  --border: #d1d5db;
+  --error: #b91c1c;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  background: var(--bg);
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 640px;
+  height: 100vh;
+  background: var(--panel);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+}
+
+.chat__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat__title { font-size: 1.1rem; margin: 0; }
+
+.chat__new {
+  border: 1px solid var(--border);
+  background: transparent;
+  border-radius: 8px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+.chat__new:hover { background: var(--bg); }
+
+.chat__messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.msg {
+  max-width: 78%;
+  padding: 10px 14px;
+  border-radius: 14px;
+  line-height: 1.4;
+  white-space: pre-wrap;   /* preserve newlines from the agent */
+  word-wrap: break-word;
+}
+
+.msg--user {
+  align-self: flex-end;
+  background: var(--user);
+  color: var(--user-text);
+  border-bottom-right-radius: 4px;
+}
+
+.msg--agent {
+  align-self: flex-start;
+  background: var(--agent);
+  color: var(--agent-text);
+  border-bottom-left-radius: 4px;
+}
+
+.msg--error {
+  align-self: center;
+  background: transparent;
+  color: var(--error);
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.msg--typing { display: inline-flex; gap: 4px; align-items: center; }
+.msg--typing span {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #9ca3af; animation: blink 1.2s infinite both;
+}
+.msg--typing span:nth-child(2) { animation-delay: 0.2s; }
+.msg--typing span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes blink { 0%, 80%, 100% { opacity: 0.3; } 40% { opacity: 1; } }
+
+.chat__form {
+  display: flex;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.chat__input {
+  flex: 1;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 1rem;
+}
+.chat__input:focus { outline: 2px solid var(--user); border-color: var(--user); }
+
+.chat__send {
+  padding: 10px 18px;
+  border: none;
+  border-radius: 10px;
+  background: var(--user);
+  color: var(--user-text);
+  font-size: 1rem;
+  cursor: pointer;
+}
+.chat__send:disabled { opacity: 0.5; cursor: not-allowed; }
+```
+
+### Step 4.4: Logic (`public/app.js`)
+Handles session persistence, submitting messages, rendering the transcript, the typing indicator, disabling the form while a request is in flight, and error display. Read the endpoint from a single configurable constant so only that line changes between local and hosted deployments (Step 4.6).
+
+```javascript
+(() => {
+  "use strict";
+
+  // Endpoint is relative to this page, so it works whether the site is served
+  // at http://localhost:8000/ or from a subfolder on shared hosting.
+  // If the frontend is ever hosted on a DIFFERENT origin than the backend,
+  // change this to the absolute URL and add that origin to `allowed_origins`
+  // in private/config.php.
+  const API_URL = "api/chat.php";
+  const SESSION_KEY = "dialogflow_session_id";
+
+  const messagesEl = document.getElementById("messages");
+  const formEl = document.getElementById("chat-form");
+  const inputEl = document.getElementById("chat-input");
+  const sendBtn = document.getElementById("send-btn");
+  const newChatBtn = document.getElementById("new-chat");
+
+  // --- session management --------------------------------------------------
+  function getSessionId() {
+    let id = localStorage.getItem(SESSION_KEY);
+    if (!id) {
+      id = (crypto.randomUUID && crypto.randomUUID()) ||
+           String(Date.now()) + "-" + Math.random().toString(16).slice(2);
+      localStorage.setItem(SESSION_KEY, id);
+    }
+    return id;
+  }
+
+  function resetSession() {
+    localStorage.removeItem(SESSION_KEY);
+    messagesEl.innerHTML = "";
+    getSessionId(); // create a fresh one immediately
+    addMessage("agent", "Started a new conversation. How can I help?");
+    inputEl.focus();
+  }
+
+  // --- rendering (always uses textContent -> no HTML injection) ------------
+  function addMessage(role, text) {
+    const el = document.createElement("div");
+    el.className = "msg msg--" + role;
+    el.textContent = text;
+    messagesEl.appendChild(el);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return el;
+  }
+
+  function showTyping() {
+    const el = document.createElement("div");
+    el.className = "msg msg--agent msg--typing";
+    el.innerHTML = "<span></span><span></span><span></span>";
+    messagesEl.appendChild(el);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    return el;
+  }
+
+  function setBusy(busy) {
+    inputEl.disabled = busy;
+    sendBtn.disabled = busy;
+    if (!busy) inputEl.focus();
+  }
+
+  // --- send flow -----------------------------------------------------------
+  async function sendMessage(message) {
+    addMessage("user", message);
+    setBusy(true);
+    const typingEl = showTyping();
+
+    try {
+      const res = await fetch(API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message, session_id: getSessionId() }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      typingEl.remove();
+
+      if (!res.ok || data.error) {
+        addMessage("error", data.error || ("Request failed (" + res.status + ")."));
+        return;
+      }
+      addMessage("agent", data.reply || "(no response)");
+    } catch (err) {
+      typingEl.remove();
+      addMessage("error", "Network error — is the local server running?");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // --- wiring --------------------------------------------------------------
+  formEl.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const message = inputEl.value.trim();
+    if (!message) return;
+    inputEl.value = "";
+    sendMessage(message);
+  });
+
+  newChatBtn.addEventListener("click", resetSession);
+
+  // Initialize on load.
+  getSessionId();
+  addMessage("agent", "Hi! Ask me anything.");
+  inputEl.focus();
+})();
+```
+
+> **Note on the Enter key:** because the input lives inside a `<form>` and Send is a `type="submit"` button, pressing **Enter** submits the form natively — no extra key listener is needed. (A multi-line `<textarea>` with Shift+Enter for newlines is a Stage 6 enhancement.)
+
+### Step 4.5: Run and verify in the browser (local)
+With `private/config.php` and `gcp-key.json` in place from Stage 3, and `composer install` already run:
+
+```bash
+# From the project root — serves public/ so index.html and api/chat.php share an origin.
+php -S localhost:8000 -t public/
+```
+
+Then open **`http://localhost:8000/`** in a browser and verify, in order:
+
+1.  The page loads with the greeting bubble and the input is focused.
+2.  Type a message and press Enter (or click **Send**): your text appears as a right-aligned bubble, a typing indicator shows, and the agent's reply appears as a left-aligned bubble.
+3.  Ask a follow-up that depends on the previous turn (e.g. "and what about tomorrow?") to confirm **multi-turn context** is preserved within the session.
+4.  Refresh the page: the transcript clears (expected — history isn't persisted for the MVP) but the **same** `session_id` is reused (check `localStorage` in DevTools → Application), so the agent still remembers the conversation.
+5.  Open DevTools → Network, send a message, and confirm the request body is `{"message":"…","session_id":"…"}` and the response is `{"reply":"…","session_id":"…"}`.
+6.  Force an error path to confirm graceful handling: stop the PHP server and send a message — you should see an italicized "Network error" line, not a frozen UI.
+
+### Step 4.6: Verify multiple simultaneous conversations
+This is the key acceptance criterion for the stage:
+
+1.  With the server still running, open `http://localhost:8000/` in **two different browsers** (e.g. Chrome and Firefox), or one normal window and one Incognito/Private window.
+2.  In window A, tell the agent a distinct fact (e.g. "My name is Alice"). In window B, tell it something different (e.g. "My name is Bob").
+3.  In each window, ask "What is my name?" — **A must answer Alice and B must answer Bob.** Because each browser/profile has its own `localStorage` `session_id`, Dialogflow CX treats them as fully separate conversations with no context bleed.
+4.  Confirm in DevTools → Application → Local Storage that the two windows hold **different** `dialogflow_session_id` values.
+
+(Cross-browser and shared-server concurrency testing is formalized in Stage 5.)
+
+### Step 4.7: Keep the endpoint portable for shared hosting
+No code change is needed for the common case, but be aware:
+
+*   Serving the frontend and backend from the same origin means the relative `API_URL = "api/chat.php"` works both locally (`http://localhost:8000/`) and when the site is deployed under a subfolder (e.g. `https://yourdomain.com/chat/` → resolves to `https://yourdomain.com/chat/api/chat.php`).
+*   Only if you host the frontend on a **different** origin than the PHP backend do you need to (a) set `API_URL` to the backend's absolute URL and (b) add that frontend origin to `allowed_origins` in `private/config.php` (Step 3.1) so the CORS headers permit it.
 
 ## 5. Testing Strategy
 
-### Phase 5.1: Local Testing
-*   Use PHP's built-in web server (`php -S localhost:8000 -t public/`) to test the application locally.
-*   Verify that the `chat.php` endpoint successfully communicates with GCP using the local path to the JSON key.
-*   Test basic conversation flow in the browser.
+The test suite lives in `test/run_tests.sh`. Run it with a single command from the project root:
 
-### Phase 5.2: Concurrency & Session Testing
-*   Open the frontend in multiple different browsers (e.g., Chrome, Firefox) or use Incognito/Private windows simultaneously.
-*   Send different messages in each window.
-*   **Verification:** Ensure that Dialogflow CX treats them as separate conversations (e.g., context from Browser A does not bleed into Browser B). This confirms the Session ID logic is working correctly.
+```bash
+bash test/run_tests.sh
+```
 
-### Phase 5.3: Shared Server Deployment & Testing
+The script manages the PHP dev server itself — it stops any existing process on port 8000 and starts a fresh one at the beginning of each run, then shuts it down when the tests finish (or on Ctrl-C). Each test prints its description, then **PASS** in green or **FAIL** in red. A summary of total passed and failed counts is printed at the end. Exit code is `0` if all tests pass, `1` if any fail.
+
+The suite is organised into six groups, run in order:
+
+### Phase 5.1 — Prerequisites
+Checks that the local environment has everything the application needs before trying to run anything else. If a critical dependency (PHP, curl, or `vendor/`) is missing the suite aborts with a clear message rather than producing confusing downstream failures.
+
+*   PHP 8.1+ is installed
+*   curl is installed
+*   `vendor/` directory exists (i.e. `composer install` has been run)
+*   `private/config.php` is present (non-fatal; GCP tests are skipped if missing)
+*   `private/gcp-key.json` is present (non-fatal; GCP tests are skipped if missing)
+
+### Phase 5.2 — PHP Dev Server
+Starts a fresh server and confirms all three frontend assets are served correctly.
+
+*   Server starts and responds within 5 seconds
+*   `GET /` → HTTP 200 (`index.html`)
+*   `GET /style.css` → HTTP 200
+*   `GET /app.js` → HTTP 200
+
+### Phase 5.3 — API Input Validation
+Exercises all rejection paths in `chat.php` without touching GCP — these tests pass even if credentials are not configured.
+
+*   `GET /api/chat.php` → 405 Method Not Allowed
+*   Non-JSON body → 400 Bad Request
+*   Empty `message` field → 400 Bad Request
+*   Message longer than 4000 characters → 400 Bad Request
+
+### Phase 5.4 — GCP Connectivity
+Verifies end-to-end communication with Dialogflow CX. Skipped if `private/config.php` or `private/gcp-key.json` is missing.
+
+*   `POST /api/chat.php` with a valid body → HTTP 200
+*   Response JSON contains a `reply` field
+*   Response echoes the sent `session_id` back correctly
+*   Reply text is non-empty
+*   Invalid `session_id` value triggers the server-side fallback UUID (still 200)
+
+### Phase 5.5 — Session Isolation & Concurrency
+Confirms that simultaneous requests with different session IDs are fully independent. Skipped if GCP credentials are missing.
+
+*   Session A and Session B requests fired concurrently — each response echoes its own `session_id`
+*   Both concurrent sessions return a non-error reply
+*   Multi-turn: a second message on session A succeeds and still carries the correct `session_id`
+
+### Phase 5.6 — Security
+Checks that `private/` is not reachable through the web server (since it sits outside the `public/` web root).
+
+*   `GET /private/config.php` → not HTTP 200 (expect 404)
+*   `GET /private/gcp-key.json` → not HTTP 200 (expect 404)
+
+### Phase 5.7 — Shared Server Deployment & Testing *(manual)*
 *   Deploy the code to the shared hosting environment (via FTP, SSH, or Git).
 *   **Crucial Security Check:** Attempt to access the `gcp-key.json` file directly via the web browser (e.g., `https://yourdomain.com/private/gcp-key.json`). Ensure it returns a 403 Forbidden or 404 Not Found error. If it is accessible, move it outside the `public_html` directory or secure it with `.htaccess`.
 *   Test the live URL to ensure the PHP environment has the necessary extensions (like cURL, JSON, and gRPC/Protobuf if required by the Google Cloud SDK) and can successfully reach the outside internet to contact GCP.
