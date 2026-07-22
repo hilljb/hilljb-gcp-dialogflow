@@ -720,17 +720,64 @@ No code change is needed for the common case, but be aware:
 
 ## 5. Testing Strategy
 
-### Phase 5.1: Local Testing
-*   Use PHP's built-in web server (`php -S localhost:8000 -t public/`) to test the application locally.
-*   Verify that the `chat.php` endpoint successfully communicates with GCP using the local path to the JSON key.
-*   Test basic conversation flow in the browser.
+The test suite lives in `test/run_tests.sh`. Run it with a single command from the project root:
 
-### Phase 5.2: Concurrency & Session Testing
-*   Open the frontend in multiple different browsers (e.g., Chrome, Firefox) or use Incognito/Private windows simultaneously.
-*   Send different messages in each window.
-*   **Verification:** Ensure that Dialogflow CX treats them as separate conversations (e.g., context from Browser A does not bleed into Browser B). This confirms the Session ID logic is working correctly.
+```bash
+bash test/run_tests.sh
+```
 
-### Phase 5.3: Shared Server Deployment & Testing
+The script manages the PHP dev server itself — it stops any existing process on port 8000 and starts a fresh one at the beginning of each run, then shuts it down when the tests finish (or on Ctrl-C). Each test prints its description, then **PASS** in green or **FAIL** in red. A summary of total passed and failed counts is printed at the end. Exit code is `0` if all tests pass, `1` if any fail.
+
+The suite is organised into six groups, run in order:
+
+### Phase 5.1 — Prerequisites
+Checks that the local environment has everything the application needs before trying to run anything else. If a critical dependency (PHP, curl, or `vendor/`) is missing the suite aborts with a clear message rather than producing confusing downstream failures.
+
+*   PHP 8.1+ is installed
+*   curl is installed
+*   `vendor/` directory exists (i.e. `composer install` has been run)
+*   `private/config.php` is present (non-fatal; GCP tests are skipped if missing)
+*   `private/gcp-key.json` is present (non-fatal; GCP tests are skipped if missing)
+
+### Phase 5.2 — PHP Dev Server
+Starts a fresh server and confirms all three frontend assets are served correctly.
+
+*   Server starts and responds within 5 seconds
+*   `GET /` → HTTP 200 (`index.html`)
+*   `GET /style.css` → HTTP 200
+*   `GET /app.js` → HTTP 200
+
+### Phase 5.3 — API Input Validation
+Exercises all rejection paths in `chat.php` without touching GCP — these tests pass even if credentials are not configured.
+
+*   `GET /api/chat.php` → 405 Method Not Allowed
+*   Non-JSON body → 400 Bad Request
+*   Empty `message` field → 400 Bad Request
+*   Message longer than 4000 characters → 400 Bad Request
+
+### Phase 5.4 — GCP Connectivity
+Verifies end-to-end communication with Dialogflow CX. Skipped if `private/config.php` or `private/gcp-key.json` is missing.
+
+*   `POST /api/chat.php` with a valid body → HTTP 200
+*   Response JSON contains a `reply` field
+*   Response echoes the sent `session_id` back correctly
+*   Reply text is non-empty
+*   Invalid `session_id` value triggers the server-side fallback UUID (still 200)
+
+### Phase 5.5 — Session Isolation & Concurrency
+Confirms that simultaneous requests with different session IDs are fully independent. Skipped if GCP credentials are missing.
+
+*   Session A and Session B requests fired concurrently — each response echoes its own `session_id`
+*   Both concurrent sessions return a non-error reply
+*   Multi-turn: a second message on session A succeeds and still carries the correct `session_id`
+
+### Phase 5.6 — Security
+Checks that `private/` is not reachable through the web server (since it sits outside the `public/` web root).
+
+*   `GET /private/config.php` → not HTTP 200 (expect 404)
+*   `GET /private/gcp-key.json` → not HTTP 200 (expect 404)
+
+### Phase 5.7 — Shared Server Deployment & Testing *(manual)*
 *   Deploy the code to the shared hosting environment (via FTP, SSH, or Git).
 *   **Crucial Security Check:** Attempt to access the `gcp-key.json` file directly via the web browser (e.g., `https://yourdomain.com/private/gcp-key.json`). Ensure it returns a 403 Forbidden or 404 Not Found error. If it is accessible, move it outside the `public_html` directory or secure it with `.htaccess`.
 *   Test the live URL to ensure the PHP environment has the necessary extensions (like cURL, JSON, and gRPC/Protobuf if required by the Google Cloud SDK) and can successfully reach the outside internet to contact GCP.
