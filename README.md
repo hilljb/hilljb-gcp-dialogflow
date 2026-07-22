@@ -16,8 +16,11 @@ See [`plan.md`](plan.md) for the full, step-by-step setup guide, including:
 
 - Enabling the Dialogflow API and creating a conversational agent in GCP
 - Installing dependencies with Composer
-- Configuring and deploying to a shared host
 - Running the automated test suite
+
+## Deploying to shared hosting
+
+[Section 6 of `plan.md`](plan.md#6-deploying-to-shared-hosting) contains the complete deployment walkthrough. It covers both common shared-hosting layouts (document root pointing at `public/`, or the entire project nested under `public_html`), handles the subfolder case, and includes a security verification step to confirm credentials are never reachable via a browser before you go live.
 
 ## GCP credentials
 
