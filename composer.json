@@ -1,0 +1,12 @@
+{
+    "name": "hilljb/hilljb-gcp-dialogflow",
+    "authors": [
+        {
+            "name": "Jason Hill",
+            "email": "jason@jasonbhill.com"
+        }
+    ],
+    "require": {
+        "google/cloud-dialogflow-cx": "^0.11.3"
+    }
+}
