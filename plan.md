@@ -51,10 +51,12 @@ Set up the PHP environment and install the required Google Cloud client librarie
     │   └── api/
     │       ├── .htaccess       # (Optional) Apache hardening for the api dir
     │       └── chat.php        # PHP Backend Endpoint
-    └── private/                # NEVER web-accessible
+    └── private/                # NEVER web-accessible; entire folder is git-ignored
         ├── .htaccess           # Deny-all fallback for Apache shared hosts
-        ├── config.php          # Non-secret settings (project, location, agent)
-        └── gcp-key.json        # Service Account Key (Keep secure!)
+        ├── config.php          # Project/agent settings (git-ignored — back up separately!)
+        └── gcp-key.json        # Service Account Key (git-ignored — back up separately!)
+
+> **Note:** The entire `private/` directory is excluded from version control via `.gitignore`. Both `config.php` (which contains your GCP project ID, location, and agent UUID) and `gcp-key.json` (your Service Account key) must be kept backed up in a secure location outside the repository — for example, a password manager, an encrypted vault, or a private cloud storage bucket. Never commit either file.
     ```
 
 ## 3. Backend Development (PHP)

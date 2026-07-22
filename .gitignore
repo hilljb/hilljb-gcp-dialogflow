@@ -1,4 +1,4 @@
 /vendor/
-/private/gcp-key.json
+/private/
 .env
 .DS_Store

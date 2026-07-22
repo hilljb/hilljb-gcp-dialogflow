@@ -1,0 +1,7 @@
+# Restrict direct file access; only chat.php should be called.
+<Files "*">
+    Require all denied
+</Files>
+<Files "chat.php">
+    Require all granted
+</Files>
