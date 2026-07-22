@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dialogflow CX Chat</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main class="chat">
+    <header class="chat__header">
+      <h1 class="chat__title">Assistant</h1>
+      <button id="new-chat" class="chat__new" type="button">New chat</button>
+    </header>
+
+    <!-- aria-live so screen readers announce new messages as they arrive -->
+    <div id="messages" class="chat__messages" aria-live="polite"></div>
+
+    <form id="chat-form" class="chat__form" autocomplete="off">
+      <input
+        id="chat-input"
+        class="chat__input"
+        type="text"
+        name="message"
+        placeholder="Type a message…"
+        maxlength="4000"
+        autocomplete="off"
+        required
+      />
+      <button id="send-btn" class="chat__send" type="submit">Send</button>
+    </form>
+  </main>
+
+  <script src="app.js" defer></script>
+</body>
+</html>
