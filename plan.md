@@ -4,6 +4,38 @@ This plan was created via Gemini for creating the link between the frontend webp
 
 This document outlines the plan for developing and testing a frontend website that interacts with a PHP backend to communicate with a Google Cloud Dialogflow CX (Vertex AI) agent. The architecture is designed to support multiple concurrent user sessions on a shared PHP server.
 
+## Table of Contents
+
+- [1. Prerequisites and GCP Configuration](#1-prerequisites-and-gcp-configuration)
+- [2. Project Setup & Dependencies](#2-project-setup--dependencies)
+- [3. Backend Development (PHP)](#3-backend-development-php)
+  - [Step 3.1: Configuration file (`private/config.php`)](#step-31-configuration-file-privateconfigphp)
+  - [Step 3.2: Config loader (`src/Config.php`)](#step-32-config-loader-srcconfigphp)
+  - [Step 3.3: Dialogflow service wrapper (`src/DialogflowService.php`)](#step-33-dialogflow-service-wrapper-srcdialogflowservicephp)
+  - [Step 3.4: Session management](#step-34-session-management)
+  - [Step 3.5: The HTTP endpoint (`public/api/chat.php`)](#step-35-the-http-endpoint-publicapichatphp)
+  - [Step 3.6: Error handling & logging conventions](#step-36-error-handling--logging-conventions)
+  - [Step 3.7: Command-line tester (`tools/chat_cli.php`)](#step-37-command-line-tester-toolschat_cliphp)
+  - [Step 3.8: Run the backend locally](#step-38-run-the-backend-locally)
+  - [Step 3.9: Shared-hosting deployment notes for the backend](#step-39-shared-hosting-deployment-notes-for-the-backend)
+- [4. Frontend Development (HTML/JS)](#4-frontend-development-htmljs)
+  - [Step 4.1: Session identity strategy](#step-41-session-identity-strategy-how-simultaneous-conversations-stay-separate)
+  - [Step 4.2: Markup (`public/index.html`)](#step-42-markup-publicindexhtml)
+  - [Step 4.3: Styling (`public/style.css`)](#step-43-styling-publicstylecss)
+  - [Step 4.4: Logic (`public/app.js`)](#step-44-logic-publicappjs)
+  - [Step 4.5: Run and verify in the browser (local)](#step-45-run-and-verify-in-the-browser-local)
+  - [Step 4.6: Verify multiple simultaneous conversations](#step-46-verify-multiple-simultaneous-conversations)
+  - [Step 4.7: Keep the endpoint portable for shared hosting](#step-47-keep-the-endpoint-portable-for-shared-hosting)
+- [5. Testing Strategy](#5-testing-strategy)
+  - [Phase 5.1 — Prerequisites](#phase-51--prerequisites)
+  - [Phase 5.2 — PHP Dev Server](#phase-52--php-dev-server)
+  - [Phase 5.3 — API Input Validation](#phase-53--api-input-validation)
+  - [Phase 5.4 — GCP Connectivity](#phase-54--gcp-connectivity)
+  - [Phase 5.5 — Session Isolation & Concurrency](#phase-55--session-isolation--concurrency)
+  - [Phase 5.6 — Security](#phase-56--security)
+  - [Phase 5.7 — Shared Server Deployment & Testing *(manual)*](#phase-57--shared-server-deployment--testing-manual)
+- [6. Future Enhancements (Post-MVP)](#6-future-enhancements-post-mvp)
+
 ## 1. Prerequisites and GCP Configuration
 Before writing code, the Google Cloud environment must be prepared to allow the shared server to authenticate and communicate with Dialogflow CX.
 
