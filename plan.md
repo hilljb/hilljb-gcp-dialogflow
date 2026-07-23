@@ -4,6 +4,47 @@ This plan was created via Gemini for creating the link between the frontend webp
 
 This document outlines the plan for developing and testing a frontend website that interacts with a PHP backend to communicate with a Google Cloud Dialogflow CX (Vertex AI) agent. The architecture is designed to support multiple concurrent user sessions on a shared PHP server.
 
+## Table of Contents
+
+- [1. Prerequisites and GCP Configuration](#1-prerequisites-and-gcp-configuration)
+- [2. Project Setup & Dependencies](#2-project-setup--dependencies)
+- [3. Backend Development (PHP)](#3-backend-development-php)
+  - [Step 3.1: Configuration file (`private/config.php`)](#step-31-configuration-file-privateconfigphp)
+  - [Step 3.2: Config loader (`src/Config.php`)](#step-32-config-loader-srcconfigphp)
+  - [Step 3.3: Dialogflow service wrapper (`src/DialogflowService.php`)](#step-33-dialogflow-service-wrapper-srcdialogflowservicephp)
+  - [Step 3.4: Session management](#step-34-session-management)
+  - [Step 3.5: The HTTP endpoint (`public/api/chat.php`)](#step-35-the-http-endpoint-publicapichatphp)
+  - [Step 3.6: Error handling & logging conventions](#step-36-error-handling--logging-conventions)
+  - [Step 3.7: Command-line tester (`tools/chat_cli.php`)](#step-37-command-line-tester-toolschat_cliphp)
+  - [Step 3.8: Run the backend locally](#step-38-run-the-backend-locally)
+  - [Step 3.9: Shared-hosting deployment notes for the backend](#step-39-shared-hosting-deployment-notes-for-the-backend)
+- [4. Frontend Development (HTML/JS)](#4-frontend-development-htmljs)
+  - [Step 4.1: Session identity strategy](#step-41-session-identity-strategy-how-simultaneous-conversations-stay-separate)
+  - [Step 4.2: Markup (`public/index.html`)](#step-42-markup-publicindexhtml)
+  - [Step 4.3: Styling (`public/style.css`)](#step-43-styling-publicstylecss)
+  - [Step 4.4: Logic (`public/app.js`)](#step-44-logic-publicappjs)
+  - [Step 4.5: Run and verify in the browser (local)](#step-45-run-and-verify-in-the-browser-local)
+  - [Step 4.6: Verify multiple simultaneous conversations](#step-46-verify-multiple-simultaneous-conversations)
+  - [Step 4.7: Keep the endpoint portable for shared hosting](#step-47-keep-the-endpoint-portable-for-shared-hosting)
+- [5. Testing Strategy](#5-testing-strategy)
+  - [Phase 5.1 — Prerequisites](#phase-51--prerequisites)
+  - [Phase 5.2 — PHP Dev Server](#phase-52--php-dev-server)
+  - [Phase 5.3 — API Input Validation](#phase-53--api-input-validation)
+  - [Phase 5.4 — GCP Connectivity](#phase-54--gcp-connectivity)
+  - [Phase 5.5 — Session Isolation & Concurrency](#phase-55--session-isolation--concurrency)
+  - [Phase 5.6 — Security](#phase-56--security)
+  - [Phase 5.7 — Shared Server Deployment & Testing *(manual)*](#phase-57--shared-server-deployment--testing-manual)
+- [6. Deploying to Shared Hosting](#6-deploying-to-shared-hosting)
+  - [Step 6.1: Build a production vendor directory](#step-61-build-a-production-vendor-directory)
+  - [Step 6.2: Decide where `private/` lives on the server](#step-62-decide-where-private-lives-on-the-server)
+  - [Step 6.3: Upload the application files](#step-63-upload-the-application-files)
+  - [Step 6.4: Upload credentials to `private/`](#step-64-upload-credentials-to-private)
+  - [Step 6.5: Adjust the frontend API URL if needed](#step-65-adjust-the-frontend-api-url-if-needed)
+  - [Step 6.6: Verify PHP requirements on the host](#step-66-verify-php-requirements-on-the-host)
+  - [Step 6.7: Security verification](#step-67-security-verification)
+  - [Step 6.8: Smoke test the live endpoint](#step-68-smoke-test-the-live-endpoint)
+- [7. Future Enhancements (Post-MVP)](#7-future-enhancements-post-mvp)
+
 ## 1. Prerequisites and GCP Configuration
 Before writing code, the Google Cloud environment must be prepared to allow the shared server to authenticate and communicate with Dialogflow CX.
 
@@ -782,7 +823,195 @@ Checks that `private/` is not reachable through the web server (since it sits ou
 *   **Crucial Security Check:** Attempt to access the `gcp-key.json` file directly via the web browser (e.g., `https://yourdomain.com/private/gcp-key.json`). Ensure it returns a 403 Forbidden or 404 Not Found error. If it is accessible, move it outside the `public_html` directory or secure it with `.htaccess`.
 *   Test the live URL to ensure the PHP environment has the necessary extensions (like cURL, JSON, and gRPC/Protobuf if required by the Google Cloud SDK) and can successfully reach the outside internet to contact GCP.
 
-## 6. Future Enhancements (Post-MVP)
+## 6. Deploying to Shared Hosting
+
+Complete Stages 1–5 locally first. By this point the application should be running and fully tested at `http://localhost:8000/`. This section walks through transferring it to a shared PHP host, including the case where you are deploying into a **specific subfolder** (e.g. `https://yourdomain.com/chat/`) rather than the domain root.
+
+### Step 6.1: Build a production vendor directory
+Because my host provides SSH access, Composer will be run on the server rather than locally. This avoids uploading the large `vendor/` directory over FTP/SFTP and ensures the installed packages match the server's PHP version and extensions.
+
+**Install Composer in your home directory (once, if not already present):**
+
+Use the instructions [here](https://getcomposer.org/download/) to install Composer. Symlink the `composer.phar` file and add to your `PATH` as needed for `composer` to be called.
+
+**Confirm the PHP version before continuing.** Some shared hosts default to an older PHP on the command line even if a newer one is available via the web server:
+
+```bash
+php -v
+```
+
+The output must show PHP 8.1 or higher. If it shows an older version, check whether the host provides a versioned binary (e.g. `php81`, `php8.1`) and use that in place of `php` for all subsequent commands. Contact your host if you are unsure which binary to use.
+
+**Upload the project files** (everything except `private/` and any locally-built `vendor/`) to the project directory on the server — for example `/home/username/domain3/chat-service-2/`. The directory should contain at minimum:
+
+```text
+composer.json
+composer.lock
+src/
+tools/
+public/
+```
+
+**Run Composer on the server** from the project root:
+
+```bash
+cd /home/username/domain3/chat-service-2
+composer install --no-dev --optimize-autoloader
+```
+
+Composer reads `composer.json` and `composer.lock` from the current directory and writes `vendor/` right alongside them — which is exactly where the autoloader in `public/api/chat.php` expects it.
+
+### Step 6.2: Decide where `private/` lives on the server
+Your server uses the layout `/home/username/domainN/` as the web root for each domain. This means your home directory — `/home/username/` — sits **above every domain's web root** and cannot be reached by any browser on any domain. This is the ideal place for credentials: no `.htaccess` fallback needed, no risk of misconfiguration exposing a key file.
+
+The full directory layout for a chat service on domain3 looks like this:
+
+```text
+/home/username/
+├── private/                              ← never web-accessible (above all domain roots)
+│   └── chat-service-2/                   ← one subfolder per chat service
+│       ├── config.php
+│       └── gcp-key.json
+├── domain1/                              ← web root for domain1 (unrelated)
+├── domain2/                              ← web root for domain2 (unrelated)
+└── domain3/                              ← web root for domain3
+    └── chat-service-2/                   ← project root (web-accessible subfolder)
+        ├── src/
+        ├── vendor/
+        ├── composer.json
+        ├── composer.lock
+        └── public/                       ← served at https://domain3.com/chat-service-2/public/
+            ├── index.html
+            ├── app.js
+            ├── style.css
+            └── api/
+                └── chat.php
+```
+
+Create the private directory for this service on the server now:
+
+```bash
+mkdir -p /home/username/private/chat-service-2
+chmod 700 /home/username/private/chat-service-2
+```
+
+**Required code change — tell the app where credentials live.**
+By default, `Config.php` looks for `private/` relative to the project root. Since credentials now live outside the project tree, you need to pass the explicit path when constructing `Config` in two files.
+
+In `public/api/chat.php`, change:
+
+```php
+$config = new Config();
+```
+
+to:
+
+```php
+$config = new Config('/home/username/private/chat-service-2/config.php');
+```
+
+In `tools/chat_cli.php`, change:
+
+```php
+$service = new DialogflowService(new Config());
+```
+
+to:
+
+```php
+$service = new DialogflowService(new Config('/home/username/private/chat-service-2/config.php'));
+```
+
+> **Adding a second chat service later** follows the same pattern: create `/home/username/private/chat-service-3/`, deploy the project code to `/home/username/domain3/chat-service-3/` (or another domain subfolder), and update the two path references in its copies of `chat.php` and `chat_cli.php` to point at the new private directory.
+
+### Step 6.3: Upload the application files
+Transfer the project to the server via SFTP or Git (avoid plain FTP; credentials are in play). Upload:
+
+- `src/`
+- `vendor/` (the production build from Step 6.1)
+- `public/`
+- `composer.json` and `composer.lock`
+
+**Do not upload `private/`** as part of this transfer — upload credentials separately in Step 6.4 so they never transit an automated pipeline or appear in deploy logs.
+
+### Step 6.4: Upload credentials to `private/`
+Upload the following two files via SFTP to `/home/username/private/chat-service-2/` — the directory created in Step 6.2:
+
+- `gcp-key.json` — your Service Account JSON key
+- `config.php` — your production configuration file
+
+Before uploading, make these two edits to `config.php`:
+
+**1. Set `credentials_path` to the absolute path of the key file on the server:**
+
+```php
+'credentials_path' => '/home/username/private/chat-service-2/gcp-key.json',
+```
+
+**2. Update `allowed_origins` to your production domain:**
+
+```php
+'allowed_origins' => ['https://domain3.com'],
+```
+
+For the common case where the frontend and backend are served from the same origin (which they are here), CORS headers are not actually required — but this value should still reflect the real domain so the header is correct if a browser does send an `Origin`.
+
+Once both files are on the server, verify the permissions are restrictive:
+
+```bash
+chmod 600 /home/username/private/chat-service-2/config.php
+chmod 600 /home/username/private/chat-service-2/gcp-key.json
+```
+
+### Step 6.5: Adjust the frontend API URL if needed
+Open `public/app.js` and check the `API_URL` constant near the top:
+
+```javascript
+const API_URL = "api/chat.php";
+```
+
+This relative path resolves correctly in two common cases:
+- **Layout A** with document root set to `public/`: the page is at `https://yourdomain.com/` and the API resolves to `https://yourdomain.com/api/chat.php`. No change needed.
+- **Layout B** with the page served from `https://yourdomain.com/chat/public/`: the relative URL resolves to `https://yourdomain.com/chat/public/api/chat.php`. No change needed.
+
+Only change `API_URL` to an absolute URL if the frontend is hosted on a **different origin** than the backend (and in that case also update `allowed_origins` in `private/config.php`).
+
+### Step 6.6: Verify PHP requirements on the host
+Before testing, confirm the host provides what the SDK needs. A `<?php phpinfo(); ?>` page or your hosting control panel can help:
+
+| Requirement | Notes |
+|---|---|
+| PHP 8.1+ | Required |
+| `curl` extension | Required (SDK HTTP transport) |
+| `json` extension | Required |
+| `mbstring` extension | Required |
+| `grpc` + `protobuf` extensions | Optional but faster; SDK falls back to REST over cURL if absent |
+
+### Step 6.7: Security verification
+Before sharing the URL, confirm the credentials directory is not reachable via a browser. Run from your local machine:
+
+```bash
+# Both should return 403 or 404 — never 200.
+curl -I https://yourdomain.com/private/gcp-key.json
+curl -I https://yourdomain.com/private/config.php
+```
+
+If either returns `200 OK`, stop and fix the directory protection before proceeding. In Layout B this means verifying the deny-all `private/.htaccess` was uploaded correctly (see [Step 3.9](#step-39-shared-hosting-deployment-notes-for-the-backend)).
+
+### Step 6.8: Smoke test the live endpoint
+Hit the API directly with curl to confirm GCP connectivity before testing the UI:
+
+```bash
+curl -s -X POST https://yourdomain.com/api/chat.php \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"Hello","session_id":"deploy-test-1"}'
+```
+
+A healthy response: `{"reply":"…","session_id":"deploy-test-1"}`.
+
+Then open the URL in a browser, send a message, and verify the full chat UI loads and the agent responds. Open a second browser or Incognito window and confirm the two conversations are independent (the same acceptance criteria as [Step 4.6](#step-46-verify-multiple-simultaneous-conversations)).
+
+## 7. Future Enhancements (Post-MVP)
 *   **Styling:** Upgrade the basic UI with a modern CSS framework (Tailwind, Bootstrap) or custom CSS.
 *   **Rich Responses:** Handle Dialogflow CX rich responses (buttons, links, custom payloads) in the PHP parser and frontend UI.
 *   **Logging:** Implement a logging mechanism in PHP to track API latency, errors, and usage for debugging on the shared server.
