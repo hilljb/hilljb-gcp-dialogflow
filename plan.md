@@ -832,16 +832,7 @@ Because my host provides SSH access, Composer will be run on the server rather t
 
 **Install Composer in your home directory (once, if not already present):**
 
-```bash
-cd ~
-php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
-php composer-setup.php
-rm composer-setup.php
-# Optional: make it available as a plain command
-mkdir -p ~/bin
-mv composer.phar ~/bin/composer
-echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
-```
+Use the instructions [here](https://getcomposer.org/download/) to install Composer. Symlink the `composer.phar` file and add to your `PATH` as needed for `composer` to be called.
 
 **Confirm the PHP version before continuing.** Some shared hosts default to an older PHP on the command line even if a newer one is available via the web server:
 
@@ -857,6 +848,7 @@ The output must show PHP 8.1 or higher. If it shows an older version, check whet
 composer.json
 composer.lock
 src/
+tools/
 public/
 ```
 
@@ -867,46 +859,70 @@ cd /home/username/domain3/chat-service-2
 composer install --no-dev --optimize-autoloader
 ```
 
-Composer reads `composer.json` and `composer.lock` from the current directory and writes `vendor/` right alongside them — which is exactly where the autoloader in `public/api/chat.php` expects it. If you installed Composer as `~/bin/composer` above, the plain `composer` command works. If it is still `~/composer.phar`, use `php ~/composer.phar install --no-dev --optimize-autoloader` instead.
+Composer reads `composer.json` and `composer.lock` from the current directory and writes `vendor/` right alongside them — which is exactly where the autoloader in `public/api/chat.php` expects it.
 
 ### Step 6.2: Decide where `private/` lives on the server
-Two layouts are possible depending on what your host allows.
+Your server uses the layout `/home/username/domainN/` as the web root for each domain. This means your home directory — `/home/username/` — sits **above every domain's web root** and cannot be reached by any browser on any domain. This is the ideal place for credentials: no `.htaccess` fallback needed, no risk of misconfiguration exposing a key file.
 
-**Layout A (preferred) — `private/` above the web root:**
-If the host lets you control the document root (e.g. via cPanel's "Document Root" setting), point it at `public/` and keep `private/` as a sibling of it. Nothing inside the project root except `public/` is reachable by a browser.
+The full directory layout for a chat service on domain3 looks like this:
 
 ```text
 /home/username/
-└── hilljb-gcp-dialogflow/     ← project root (not web-accessible)
-    ├── private/                ← credentials live here (not web-accessible)
-    ├── src/
-    ├── vendor/
-    └── public/                 ← set this as the document root
-        ├── index.html
-        ├── app.js
-        ├── style.css
-        └── api/
-            └── chat.php
+├── private/                              ← never web-accessible (above all domain roots)
+│   └── chat-service-2/                   ← one subfolder per chat service
+│       ├── config.php
+│       └── gcp-key.json
+├── domain1/                              ← web root for domain1 (unrelated)
+├── domain2/                              ← web root for domain2 (unrelated)
+└── domain3/                              ← web root for domain3
+    └── chat-service-2/                   ← project root (web-accessible subfolder)
+        ├── src/
+        ├── vendor/
+        ├── composer.json
+        ├── composer.lock
+        └── public/                       ← served at https://domain3.com/chat-service-2/public/
+            ├── index.html
+            ├── app.js
+            ├── style.css
+            └── api/
+                └── chat.php
 ```
 
-**Layout B (fallback) — everything under `public_html`:**
-If the host requires all files to live under a single web root (common on many shared hosts), place the project in a subfolder and rely on the deny-all `.htaccess` in `private/` to block web access:
+Create the private directory for this service on the server now:
 
-```text
-/home/username/public_html/
-└── chat/                       ← subfolder name of your choice
-    ├── private/                ← protected by .htaccess (Require all denied)
-    ├── src/
-    ├── vendor/
-    └── public/
-        ├── index.html
-        ├── app.js
-        ├── style.css
-        └── api/
-            └── chat.php
+```bash
+mkdir -p /home/username/private/chat-service-2
+chmod 700 /home/username/private/chat-service-2
 ```
 
-> In Layout B, the chat UI will be at `https://yourdomain.com/chat/public/` and the API endpoint will be at `https://yourdomain.com/chat/public/api/chat.php`. If that path looks untidy, many shared hosts allow you to create a redirect or alias so that `https://yourdomain.com/chat/` maps to `public/` — check your host's documentation.
+**Required code change — tell the app where credentials live.**
+By default, `Config.php` looks for `private/` relative to the project root. Since credentials now live outside the project tree, you need to pass the explicit path when constructing `Config` in two files.
+
+In `public/api/chat.php`, change:
+
+```php
+$config = new Config();
+```
+
+to:
+
+```php
+$config = new Config('/home/username/private/chat-service-2/config.php');
+```
+
+In `tools/chat_cli.php`, change:
+
+```php
+$service = new DialogflowService(new Config());
+```
+
+to:
+
+```php
+$service = new DialogflowService(new Config('/home/username/private/chat-service-2/config.php'));
+```
+
+> **Adding a second chat service later** follows the same pattern: create `/home/username/private/chat-service-3/`, deploy the project code to `/home/username/domain3/chat-service-3/` (or another domain subfolder), and update the two path references in its copies of `chat.php` and `chat_cli.php` to point at the new private directory.
 
 ### Step 6.3: Upload the application files
 Transfer the project to the server via SFTP or Git (avoid plain FTP; credentials are in play). Upload:
@@ -919,18 +935,33 @@ Transfer the project to the server via SFTP or Git (avoid plain FTP; credentials
 **Do not upload `private/`** as part of this transfer — upload credentials separately in Step 6.4 so they never transit an automated pipeline or appear in deploy logs.
 
 ### Step 6.4: Upload credentials to `private/`
-Upload the following two files to the `private/` directory on the server via SFTP:
+Upload the following two files via SFTP to `/home/username/private/chat-service-2/` — the directory created in Step 6.2:
 
-- `private/gcp-key.json` — your Service Account JSON key
-- `private/config.php` — with your production GCP values and, critically, updated `allowed_origins`
+- `gcp-key.json` — your Service Account JSON key
+- `config.php` — your production configuration file
 
-Update `allowed_origins` in `private/config.php` to your production domain before uploading:
+Before uploading, make these two edits to `config.php`:
+
+**1. Set `credentials_path` to the absolute path of the key file on the server:**
 
 ```php
-'allowed_origins' => ['https://yourdomain.com'],
+'credentials_path' => '/home/username/private/chat-service-2/gcp-key.json',
 ```
 
-If you are deploying to a subfolder served from a different origin than the PHP backend, list that origin here. For the common case where frontend and backend share the same origin, a relative `API_URL` in `app.js` means CORS headers are not needed at all.
+**2. Update `allowed_origins` to your production domain:**
+
+```php
+'allowed_origins' => ['https://domain3.com'],
+```
+
+For the common case where the frontend and backend are served from the same origin (which they are here), CORS headers are not actually required — but this value should still reflect the real domain so the header is correct if a browser does send an `Origin`.
+
+Once both files are on the server, verify the permissions are restrictive:
+
+```bash
+chmod 600 /home/username/private/chat-service-2/config.php
+chmod 600 /home/username/private/chat-service-2/gcp-key.json
+```
 
 ### Step 6.5: Adjust the frontend API URL if needed
 Open `public/app.js` and check the `API_URL` constant near the top:
