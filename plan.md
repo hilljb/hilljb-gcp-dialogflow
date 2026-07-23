@@ -35,14 +35,15 @@ This document outlines the plan for developing and testing a frontend website th
   - [Phase 5.6 — Security](#phase-56--security)
   - [Phase 5.7 — Shared Server Deployment & Testing *(manual)*](#phase-57--shared-server-deployment--testing-manual)
 - [6. Deploying to Shared Hosting](#6-deploying-to-shared-hosting)
-  - [Step 6.1: Build a production vendor directory](#step-61-build-a-production-vendor-directory)
+  - [Step 6.1: Prepare the server environment](#step-61-prepare-the-server-environment)
   - [Step 6.2: Decide where `private/` lives on the server](#step-62-decide-where-private-lives-on-the-server)
-  - [Step 6.3: Upload the application files](#step-63-upload-the-application-files)
-  - [Step 6.4: Upload credentials to `private/`](#step-64-upload-credentials-to-private)
-  - [Step 6.5: Adjust the frontend API URL if needed](#step-65-adjust-the-frontend-api-url-if-needed)
-  - [Step 6.6: Verify PHP requirements on the host](#step-66-verify-php-requirements-on-the-host)
-  - [Step 6.7: Security verification](#step-67-security-verification)
-  - [Step 6.8: Smoke test the live endpoint](#step-68-smoke-test-the-live-endpoint)
+  - [Step 6.3: Upload the application files and install dependencies](#step-63-upload-the-application-files-and-install-dependencies)
+  - [Step 6.4: Update the application code on the server](#step-64-update-the-application-code-on-the-server)
+  - [Step 6.5: Upload credentials and configure them on the server](#step-65-upload-credentials-and-configure-them-on-the-server)
+  - [Step 6.6: Adjust the frontend API URL if needed](#step-66-adjust-the-frontend-api-url-if-needed)
+  - [Step 6.7: Verify PHP requirements on the host](#step-67-verify-php-requirements-on-the-host)
+  - [Step 6.8: Security verification](#step-68-security-verification)
+  - [Step 6.9: Smoke test the live endpoint](#step-69-smoke-test-the-live-endpoint)
 - [7. Future Enhancements (Post-MVP)](#7-future-enhancements-post-mvp)
 
 ## 1. Prerequisites and GCP Configuration
@@ -827,12 +828,12 @@ Checks that `private/` is not reachable through the web server (since it sits ou
 
 Complete Stages 1–5 locally first. By this point the application should be running and fully tested at `http://localhost:8000/`. This section walks through transferring it to a shared PHP host, including the case where you are deploying into a **specific subfolder** (e.g. `https://yourdomain.com/chat/`) rather than the domain root.
 
-### Step 6.1: Build a production vendor directory
-Because my host provides SSH access, Composer will be run on the server rather than locally. This avoids uploading the large `vendor/` directory over FTP/SFTP and ensures the installed packages match the server's PHP version and extensions.
+### Step 6.1: Prepare the server environment
+Because SSH access is available, Composer will be run on the server after uploading the project files. This avoids transferring the large `vendor/` directory and ensures installed packages match the server's PHP version and extensions.
 
 **Install Composer in your home directory (once, if not already present):**
 
-Use the instructions [here](https://getcomposer.org/download/) to install Composer. Symlink the `composer.phar` file and add to your `PATH` as needed for `composer` to be called.
+Use the instructions [here](https://getcomposer.org/download/) to install Composer. Symlink the `composer.phar` file and add it to your `PATH` as needed so that `composer` can be called from any directory.
 
 **Confirm the PHP version before continuing.** Some shared hosts default to an older PHP on the command line even if a newer one is available via the web server:
 
@@ -841,25 +842,6 @@ php -v
 ```
 
 The output must show PHP 8.1 or higher. If it shows an older version, check whether the host provides a versioned binary (e.g. `php81`, `php8.1`) and use that in place of `php` for all subsequent commands. Contact your host if you are unsure which binary to use.
-
-**Upload the project files** (everything except `private/` and any locally-built `vendor/`) to the project directory on the server — for example `/home/username/domain3/chat-service-2/`. The directory should contain at minimum:
-
-```text
-composer.json
-composer.lock
-src/
-tools/
-public/
-```
-
-**Run Composer on the server** from the project root:
-
-```bash
-cd /home/username/domain3/chat-service-2
-composer install --no-dev --optimize-autoloader
-```
-
-Composer reads `composer.json` and `composer.lock` from the current directory and writes `vendor/` right alongside them — which is exactly where the autoloader in `public/api/chat.php` expects it.
 
 ### Step 6.2: Decide where `private/` lives on the server
 Your server uses the layout `/home/username/domainN/` as the web root for each domain. This means your home directory — `/home/username/` — sits **above every domain's web root** and cannot be reached by any browser on any domain. This is the ideal place for credentials: no `.htaccess` fallback needed, no risk of misconfiguration exposing a key file.
@@ -888,17 +870,37 @@ The full directory layout for a chat service on domain3 looks like this:
                 └── chat.php
 ```
 
-Create the private directory for this service on the server now:
+**A code change will be required — but make it on the server, not locally.**
+By default, `Config.php` looks for `private/` relative to the project root. Since credentials now live outside the project tree, the app must be told the explicit path to `config.php` when constructing `Config` in two files (`public/api/chat.php` and `tools/chat_cli.php`). This is a server-specific path, so **do not** edit these files in your local repository — that would bake a machine-specific path into your clean, committed code. Instead, upload the unmodified files first (Step 6.3) and apply this edit directly on the server afterward (Step 6.4).
+
+> **Adding a second chat service later** follows the same pattern: create `/home/username/private/chat-service-3/`, deploy the unmodified project code to `/home/username/domain3/chat-service-3/` (or another domain subfolder), then edit the two path references in *that server copy* of `chat.php` and `chat_cli.php` to point at the new private directory.
+
+### Step 6.3: Upload the application files and install dependencies
+Upload the project **exactly as it exists in your local repository** — do not pre-edit any files for the server. All server-specific modifications happen after the files are in place (Steps 6.4–6.6).
+
+Transfer the project to the server via SFTP (avoid plain FTP; credentials will be nearby). Upload the following to `/home/username/domain3/chat-service-2/`:
+
+- `composer.json`
+- `composer.lock`
+- `src/`
+- `tools/`
+- `public/`
+
+Do **not** upload `vendor/` (it will be built on the server in the next step) and do **not** upload `private/` (credentials are handled separately in Step 6.5).
+
+**Run Composer on the server** to install dependencies:
 
 ```bash
-mkdir -p /home/username/private/chat-service-2
-chmod 700 /home/username/private/chat-service-2
+cd /home/username/domain3/chat-service-2
+composer install --no-dev --optimize-autoloader
 ```
 
-**Required code change — tell the app where credentials live.**
-By default, `Config.php` looks for `private/` relative to the project root. Since credentials now live outside the project tree, you need to pass the explicit path when constructing `Config` in two files.
+Composer reads `composer.json` and `composer.lock` from the current directory and writes `vendor/` right alongside them — which is exactly where the autoloader in `public/api/chat.php` expects it.
 
-In `public/api/chat.php`, change:
+### Step 6.4: Update the application code on the server
+Now that the unmodified files are on the server, apply the server-specific path change described in Step 6.2. Make these edits **on the server** (over SSH, with `nano`/`vim`, or by editing the remote files in your editor) — never in your local repository.
+
+In `/home/username/domain3/chat-service-2/public/api/chat.php`, change:
 
 ```php
 $config = new Config();
@@ -910,7 +912,7 @@ to:
 $config = new Config('/home/username/private/chat-service-2/config.php');
 ```
 
-In `tools/chat_cli.php`, change:
+In `/home/username/domain3/chat-service-2/tools/chat_cli.php`, change:
 
 ```php
 $service = new DialogflowService(new Config());
@@ -922,25 +924,22 @@ to:
 $service = new DialogflowService(new Config('/home/username/private/chat-service-2/config.php'));
 ```
 
-> **Adding a second chat service later** follows the same pattern: create `/home/username/private/chat-service-3/`, deploy the project code to `/home/username/domain3/chat-service-3/` (or another domain subfolder), and update the two path references in its copies of `chat.php` and `chat_cli.php` to point at the new private directory.
+The referenced `config.php` does not exist yet — you will upload it in the next step.
 
-### Step 6.3: Upload the application files
-Transfer the project to the server via SFTP or Git (avoid plain FTP; credentials are in play). Upload:
+### Step 6.5: Upload credentials and configure them on the server
+First, create the private directory on the server over SSH:
 
-- `src/`
-- `vendor/` (the production build from Step 6.1)
-- `public/`
-- `composer.json` and `composer.lock`
+```bash
+mkdir -p /home/username/private/chat-service-2
+chmod 700 /home/username/private/chat-service-2
+```
 
-**Do not upload `private/`** as part of this transfer — upload credentials separately in Step 6.4 so they never transit an automated pipeline or appear in deploy logs.
-
-### Step 6.4: Upload credentials to `private/`
-Upload the following two files via SFTP to `/home/username/private/chat-service-2/` — the directory created in Step 6.2:
+Then upload your two local credential files **unmodified** via SFTP to `/home/username/private/chat-service-2/`:
 
 - `gcp-key.json` — your Service Account JSON key
-- `config.php` — your production configuration file
+- `config.php` — your configuration file (still holding the local-dev values)
 
-Before uploading, make these two edits to `config.php`:
+Once both files are on the server, edit `config.php` **in place on the server** to apply the two production changes:
 
 **1. Set `credentials_path` to the absolute path of the key file on the server:**
 
@@ -956,15 +955,15 @@ Before uploading, make these two edits to `config.php`:
 
 For the common case where the frontend and backend are served from the same origin (which they are here), CORS headers are not actually required — but this value should still reflect the real domain so the header is correct if a browser does send an `Origin`.
 
-Once both files are on the server, verify the permissions are restrictive:
+Finally, tighten the permissions on both files:
 
 ```bash
 chmod 600 /home/username/private/chat-service-2/config.php
 chmod 600 /home/username/private/chat-service-2/gcp-key.json
 ```
 
-### Step 6.5: Adjust the frontend API URL if needed
-Open `public/app.js` and check the `API_URL` constant near the top:
+### Step 6.6: Adjust the frontend API URL if needed
+This is another file modification, so — like the edits above — only apply it **on the server** after the upload, and only if your layout requires it. Open the server copy of `public/app.js` and check the `API_URL` constant near the top:
 
 ```javascript
 const API_URL = "api/chat.php";
@@ -976,7 +975,7 @@ This relative path resolves correctly in two common cases:
 
 Only change `API_URL` to an absolute URL if the frontend is hosted on a **different origin** than the backend (and in that case also update `allowed_origins` in `private/config.php`).
 
-### Step 6.6: Verify PHP requirements on the host
+### Step 6.7: Verify PHP requirements on the host
 Before testing, confirm the host provides what the SDK needs. A `<?php phpinfo(); ?>` page or your hosting control panel can help:
 
 | Requirement | Notes |
@@ -987,7 +986,7 @@ Before testing, confirm the host provides what the SDK needs. A `<?php phpinfo()
 | `mbstring` extension | Required |
 | `grpc` + `protobuf` extensions | Optional but faster; SDK falls back to REST over cURL if absent |
 
-### Step 6.7: Security verification
+### Step 6.8: Security verification
 Before sharing the URL, confirm the credentials directory is not reachable via a browser. Run from your local machine:
 
 ```bash
@@ -998,7 +997,7 @@ curl -I https://yourdomain.com/private/config.php
 
 If either returns `200 OK`, stop and fix the directory protection before proceeding. In Layout B this means verifying the deny-all `private/.htaccess` was uploaded correctly (see [Step 3.9](#step-39-shared-hosting-deployment-notes-for-the-backend)).
 
-### Step 6.8: Smoke test the live endpoint
+### Step 6.9: Smoke test the live endpoint
 Hit the API directly with curl to confirm GCP connectivity before testing the UI:
 
 ```bash
