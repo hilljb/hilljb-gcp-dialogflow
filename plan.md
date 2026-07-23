@@ -828,13 +828,46 @@ Checks that `private/` is not reachable through the web server (since it sits ou
 Complete Stages 1–5 locally first. By this point the application should be running and fully tested at `http://localhost:8000/`. This section walks through transferring it to a shared PHP host, including the case where you are deploying into a **specific subfolder** (e.g. `https://yourdomain.com/chat/`) rather than the domain root.
 
 ### Step 6.1: Build a production vendor directory
-Run Composer locally to produce a production-only `vendor/` directory, excluding dev tools:
+Because my host provides SSH access, Composer will be run on the server rather than locally. This avoids uploading the large `vendor/` directory over FTP/SFTP and ensures the installed packages match the server's PHP version and extensions.
+
+**Install Composer in your home directory (once, if not already present):**
 
 ```bash
+cd ~
+php -r "copy('https://getcomposer.org/installer', 'composer-setup.php');"
+php composer-setup.php
+rm composer-setup.php
+# Optional: make it available as a plain command
+mkdir -p ~/bin
+mv composer.phar ~/bin/composer
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc && source ~/.bashrc
+```
+
+**Confirm the PHP version before continuing.** Some shared hosts default to an older PHP on the command line even if a newer one is available via the web server:
+
+```bash
+php -v
+```
+
+The output must show PHP 8.1 or higher. If it shows an older version, check whether the host provides a versioned binary (e.g. `php81`, `php8.1`) and use that in place of `php` for all subsequent commands. Contact your host if you are unsure which binary to use.
+
+**Upload the project files** (everything except `private/` and any locally-built `vendor/`) to the project directory on the server — for example `/home/username/domain3/chat-service-2/`. The directory should contain at minimum:
+
+```text
+composer.json
+composer.lock
+src/
+public/
+```
+
+**Run Composer on the server** from the project root:
+
+```bash
+cd /home/username/domain3/chat-service-2
 composer install --no-dev --optimize-autoloader
 ```
 
-If the shared host provides SSH access and has Composer installed, you may alternatively upload `composer.json` and `composer.lock` and run `composer install --no-dev` on the server instead.
+Composer reads `composer.json` and `composer.lock` from the current directory and writes `vendor/` right alongside them — which is exactly where the autoloader in `public/api/chat.php` expects it. If you installed Composer as `~/bin/composer` above, the plain `composer` command works. If it is still `~/composer.phar`, use `php ~/composer.phar install --no-dev --optimize-autoloader` instead.
 
 ### Step 6.2: Decide where `private/` lives on the server
 Two layouts are possible depending on what your host allows.
